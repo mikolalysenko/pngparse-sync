@@ -32,7 +32,6 @@ function parseData(dataBuffer) {
   var state             = 0,
       off               = 0,
       buf               = new Buffer(13),
-      waiting           = 2,
       b                 = -1,
       p                 = 0,
       pngPaletteEntries = 0,
@@ -119,7 +118,7 @@ function parseData(dataBuffer) {
                  * well wait until we're actually going to start filling the
                  * buffer in case of errors...) */
                 if(!pngPixels)
-                  pngPixels = new Buffer(pngWidth * pngHeight * idChannels)
+                  pngPixels = new Uint8Array(pngWidth * pngHeight * idChannels)
 
                 state = 5
                 break
@@ -336,6 +335,9 @@ function parseData(dataBuffer) {
     return null
   }
 
+  if(state !== 9) {
+    return null
+  }
 
   //Concatenate all inflate buffers
   var inflateBuffer = Buffer.concat(inflateQueue)
@@ -492,16 +494,16 @@ function parseData(dataBuffer) {
         b = -1;
       }
     }
+    return true
   }
 
-  unpackPixels(inflateData)
+  if(!unpackPixels(inflateData)) {
+    return null
+  }
 
   if(p !== pngPixels.length) {
     return null
   }
 
-  if(!--waiting) {
-    return new ImageData(pngWidth, pngHeight, idChannels, pngPixels, pngTrailer)
-  }
-  return null
+  return new ImageData(pngWidth, pngHeight, idChannels, pngPixels, pngTrailer)
 }

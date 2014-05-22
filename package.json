@@ -19,7 +19,6 @@
     "pako": "^0.2.1"
   },
   "devDependencies": {
-    "mocha": "1.10.x",
-    "chai": "1.6.x"
+    "tape": "^2.13.1"
   }
 }
