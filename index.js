@@ -51,7 +51,7 @@ function parseData(dataBuffer) {
     while(i !== len)
       switch(state) {
         case 0: /* PNG header */
-          if(data[i++] !== HEADER[off++])
+          if(data.readUInt8(i++) !== HEADER[off++])
             return false
 
           if(off === HEADER.length) {
