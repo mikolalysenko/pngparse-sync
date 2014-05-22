@@ -148,13 +148,13 @@ function parseData(dataBuffer) {
             data.copy(buf, off, i, i + chunkLength - off)
 
             if(buf.readUInt8(10) !== 0)
-              return error(new Error("Unsupported compression method."))
+              return false
 
             if(buf.readUInt8(11) !== 0)
-              return error(new Error("Unsupported filter method."))
+              return false
 
             if(buf.readUInt8(12) !== 0)
-              return error(new Error("Unsupported interlace method."))
+              return false
 
             i           += chunkLength - off
             state        = 8
