@@ -1,7 +1,7 @@
 {
   "name": "pngparse-sync",
   "version": "1.0.0",
-  "description": "convert PNG images to pixel arrays without dependencies",
+  "description": "Synchronously parse a PNG file",
   "keywords": [
     "png",
     "image"
@@ -12,7 +12,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git://github.com/darkskyapp/pngparse.git"
+    "url": "git@github.com:mikolalysenko/pngparse-sync.git"
   },
   "main": "./index",
   "dependencies": {
@@ -20,5 +20,10 @@
   },
   "devDependencies": {
     "tape": "^2.13.1"
-  }
+  },
+  "scripts": {
+    "test": "tape test/*.js"
+  },
+  "readmeFilename": "README.md",
+  "license": "Public domain"
 }
