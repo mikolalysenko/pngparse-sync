@@ -1,24 +1,25 @@
 {
-  "name" : "pngparse",
-  "version" : "2.0.1",
-  "description" : "convert PNG images to pixel arrays without dependencies",
-  "keywords" : [
+  "name": "pngparse-sync",
+  "version": "1.0.0",
+  "description": "convert PNG images to pixel arrays without dependencies",
+  "keywords": [
     "png",
     "image"
   ],
   "author": {
-    "name": "The Dark Sky Company",
-    "email": "devsupport@darkskyapp.com"
+    "name": "Mikola Lysenko",
+    "email": "mikolalysenko@gmail.com"
   },
   "repository": {
     "type": "git",
     "url": "git://github.com/darkskyapp/pngparse.git"
   },
   "main": "./index",
-  "dependencies" : {
+  "dependencies": {
+    "pako": "^0.2.1"
   },
-  "devDependencies" : {
-    "mocha"    : "1.10.x",
-    "chai"     : "1.6.x"
+  "devDependencies": {
+    "mocha": "1.10.x",
+    "chai": "1.6.x"
   }
 }

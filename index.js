@@ -1,6 +1,8 @@
-var fs     = require("fs"),
-    stream = require("stream"),
-    zlib   = require("zlib"),
+"use strict"
+
+module.exports = parseData
+
+var pako = require("pako"),
     HEADER = new Buffer("89504e470d0a1a0a", "hex")
 
 function ImageData(width, height, channels, data, trailer) {
@@ -9,45 +11,6 @@ function ImageData(width, height, channels, data, trailer) {
   this.channels = channels;
   this.data     = data;
   this.trailer  = trailer;
-}
-
-ImageData.prototype.getPixel = function(x, y) {
-  x = x|0;
-  y = y|0;
-
-  if(x < 0 || y < 0 || x >= this.width || y >= this.height)
-    return 0;
-
-  var index = (y * this.width + x) * this.channels,
-      r, g, b, a;
-
-  switch(this.channels) {
-    case 1:
-      r = g = b = this.data[index];
-      a = 255;
-      break;
-
-    case 2:
-      r = g = b = this.data[index    ];
-      a         = this.data[index + 1];
-      break;
-
-    case 3:
-      r = this.data[index    ];
-      g = this.data[index + 1];
-      b = this.data[index + 2];
-      a = 255;
-      break;
-
-    case 4:
-      r = this.data[index    ];
-      g = this.data[index + 1];
-      b = this.data[index + 2];
-      a = this.data[index + 3];
-      break;
-  }
-
-  return ((r << 24) | (g << 16) | (b << 8) | a) >>> 0;
 }
 
 function paeth(a, b, c) {
@@ -65,9 +28,8 @@ function paeth(a, b, c) {
   return c
 }
 
-exports.parseStream = function(stream, callback) {
-  var inflate           = zlib.createInflate(),
-      state             = 0,
+function parseData(dataBuffer) {
+  var state             = 0,
       off               = 0,
       buf               = new Buffer(13),
       waiting           = 2,
@@ -80,61 +42,9 @@ exports.parseStream = function(stream, callback) {
       pngBytesPerScanline, pngSamples, currentScanline, priorScanline,
       scanlineFilter, pngTrailer, pngPalette, pngAlpha, idChannels;
 
-  function error(err) {
-    /* FIXME: stream.destroy no longer exists in node 0.10. I can't actually
-     * find what the right way to say "hey stream, I am no longer going to read
-     * from you ever" or "hey stream, I am never going to write to you ever
-     * again", so I'm really not sure what the right way to handle this is.
-     *
-     * I would appreciate pull requests from somebody who actually understands
-     * how node streams are supposed to function. */
-    if(stream.destroy)
-      stream.destroy()
 
-    if(inflate.destroy)
-      inflate.destroy()
-
-    return callback(err)
-  }
-
-  function end() {
-    if(!--waiting)
-      return callback(
-        undefined,
-        new ImageData(pngWidth, pngHeight, idChannels, pngPixels, pngTrailer)
-      )
-  }
-
-  stream.on("error", error)
-  inflate.on("error", error)
-
-  stream.on("end", function() {
-    stream.destroy()
-
-    if(!pngPixels)
-      return error(new Error("Corrupt PNG?"))
-
-    if(!pngTrailer)
-      return error(new Error("Corrupt PNG?"))
-
-    return end()
-  })
-
-  inflate.on("end", function() {
-    if(inflate.destroy)
-      inflate.destroy()
-
-    if(p !== pngPixels.length)
-      return error(new Error("Too little pixel data! (Corrupt PNG?)"))
-
-    return end()
-  })
-
-  stream.on("data", function(data) {
-    /* If an error occurred, bail. */
-    if(!stream.readable)
-      return
-
+  var inflateQueue = []
+  function inputData(data) {
     var len = data.length,
         i   = 0,
         tmp, j;
@@ -143,7 +53,7 @@ exports.parseStream = function(stream, callback) {
       switch(state) {
         case 0: /* PNG header */
           if(data[i++] !== HEADER[off++])
-            return error(new Error("Invalid PNG header."))
+            return false
 
           if(off === HEADER.length) {
             state = 1
@@ -180,7 +90,7 @@ exports.parseStream = function(stream, callback) {
 
                 else {
                   if(chunkLength % 3 !== 0)
-                    return error(new Error("Invalid PLTE size."))
+                    return false
 
                   pngPaletteEntries = chunkLength / 3
                   pngPalette        = new Buffer(chunkLength)
@@ -190,16 +100,16 @@ exports.parseStream = function(stream, callback) {
 
               case "tRNS":
                 if(pngColorType !== 3)
-                  return error(new Error("tRNS for non-paletted images not yet supported."));
+                  return false
 
                 /* We only support tRNS on paletted images right now. Those
                  * images may either have 1 or 3 channels, but in either case
                  * we add one for transparency. */
-                idChannels       ++;
+                idChannels       ++
 
-                pngAlphaEntries = chunkLength;
-                pngAlpha        = new Buffer(chunkLength);
-                state           = 4;
+                pngAlphaEntries = chunkLength
+                pngAlpha        = new Buffer(chunkLength)
+                state           = 4
                 break
 
               case "IDAT":
@@ -209,7 +119,7 @@ exports.parseStream = function(stream, callback) {
                  * well wait until we're actually going to start filling the
                  * buffer in case of errors...) */
                 if(!pngPixels)
-                  pngPixels = new Buffer(pngWidth * pngHeight * idChannels);
+                  pngPixels = new Buffer(pngWidth * pngHeight * idChannels)
 
                 state = 5
                 break
@@ -227,7 +137,7 @@ exports.parseStream = function(stream, callback) {
 
         case 2: /* IHDR */
           if(chunkLength !== 13)
-            return error(new Error("Invalid IHDR chunk."))
+            return false
 
           else if(len - i < chunkLength - off) {
             data.copy(buf, off, i)
@@ -258,39 +168,37 @@ exports.parseStream = function(stream, callback) {
 
             switch(pngColorType) {
               case 0:
-                pngSamplesPerPixel = 1;
-                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.125);
-                idChannels         = 1;
+                pngSamplesPerPixel = 1
+                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.125)
+                idChannels         = 1
                 break
 
               case 2:
-                pngSamplesPerPixel = 3;
-                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.375);
-                idChannels         = 3;
-                break;
+                pngSamplesPerPixel = 3
+                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.375)
+                idChannels         = 3
+                break
 
               case 3:
-                pngSamplesPerPixel = 1;
-                pngBytesPerPixel   = 1;
-                idChannels         = 3;
+                pngSamplesPerPixel = 1
+                pngBytesPerPixel   = 1
+                idChannels         = 3
                 break
 
               case 4:
-                pngSamplesPerPixel = 2;
-                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.250);
-                idChannels         = 2;
+                pngSamplesPerPixel = 2
+                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.250)
+                idChannels         = 2
                 break
 
               case 6:
-                pngSamplesPerPixel = 4;
-                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.5);
-                idChannels         = 4;
-                break;
+                pngSamplesPerPixel = 4
+                pngBytesPerPixel   = Math.ceil(pngBitDepth * 0.5)
+                idChannels         = 4
+                break
 
               default:
-                return error(
-                  new Error("Unsupported color type: " + pngColorType)
-                );
+                return false
             }
 
             pngBytesPerScanline = Math.ceil(
@@ -348,7 +256,7 @@ exports.parseStream = function(stream, callback) {
            * feed as much as we can to the inflator. */
           if(len - i < chunkLength - off) {
             /* FIXME: Do I need to be smart and check the return value? */
-            inflate.write(data.slice(i))
+            inflateQueue.push(data.slice(i))
             off += len - i
             i    = len
           }
@@ -357,7 +265,7 @@ exports.parseStream = function(stream, callback) {
            * finish processing the chunk. */
           else {
             /* FIXME: Do I need to be smart and check the return value? */
-            inflate.write(data.slice(i, i + chunkLength - off))
+            inflateQueue.push(data.slice(i, i + chunkLength - off))
             i    += chunkLength - off
             state = 8
             off   = 0
@@ -366,7 +274,7 @@ exports.parseStream = function(stream, callback) {
 
         case 6: /* IEND */
           if(chunkLength !== 0)
-            return error(new Error("Invalid IEND chunk."))
+            return false
 
           else if(len - i < 4 - off) {
             off += len - i
@@ -378,8 +286,6 @@ exports.parseStream = function(stream, callback) {
             i         += 4 - off
             state      = 9
             off        = 0
-
-            inflate.end()
           }
           break
 
@@ -421,13 +327,21 @@ exports.parseStream = function(stream, callback) {
           i          = len
           break
       }
-  })
 
-  inflate.on("data", function(data) {
-    /* If an error occurred, bail. */
-    if(!inflate.readable)
-      return
+    return true
+  }
 
+  //Try parsing header data
+  if(!inputData(dataBuffer)) {
+    return null
+  }
+
+
+  //Concatenate all inflate buffers
+  var inflateBuffer = Buffer.concat(inflateQueue)
+  var inflateData = pako.inflate(new Uint8Array(inflateBuffer))
+
+  function unpackPixels(data) {
     var len = data.length,
         i, tmp, x, j, k
 
@@ -477,15 +391,13 @@ exports.parseStream = function(stream, callback) {
             break
 
           default:
-            return error(
-              new Error("Unsupported scanline filter: " + scanlineFilter)
-            )
+            return null
         }
 
       if(++b === pngBytesPerScanline) {
         /* One scanline too many? */
         if(p === pngPixels.length)
-          return error(new Error("Too much pixel data! (Corrupt PNG?)"))
+          return null
 
         /* We have now read a complete scanline, so unfilter it and write it
          * into the pixel array. */
@@ -513,7 +425,7 @@ exports.parseStream = function(stream, callback) {
                 break
 
               default:
-                return error(new Error("Unsupported bit depth: " + pngBitDepth))
+                return null
             }
 
           /* Write the pixel based off of the samples so collected. */
@@ -530,7 +442,7 @@ exports.parseStream = function(stream, callback) {
 
             case 3:
               if(pngSamples[0] >= pngPaletteEntries)
-                return error(new Error("Invalid palette index."));
+                return null
 
               switch(idChannels) {
                 case 1:
@@ -580,31 +492,16 @@ exports.parseStream = function(stream, callback) {
         b = -1;
       }
     }
-  })
+  }
+
+  unpackPixels(inflateData)
+
+  if(p !== pngPixels.length) {
+    return null
+  }
+
+  if(!--waiting) {
+    return new ImageData(pngWidth, pngHeight, idChannels, pngPixels, pngTrailer)
+  }
+  return null
 }
-
-exports.parseFile = function(pathname, callback) {
-  return exports.parseStream(fs.createReadStream(pathname), callback)
-}
-
-exports.parseBuffer = function(buf, callback) {
-  /* Create a mock stream. */
-  var s = new stream.Stream()
-
-  /* Set up the destroy functionality. */
-  s.readable = true
-  s.destroy  = function() { s.readable = false }
-
-  /* Set up the PNG parsing hooks. */
-  exports.parseStream(s, callback)
-
-  /* Send the data down the stream. */
-  s.emit("data", buf)
-
-  /* If no errors occurred in the data, close the stream. */
-  if(s.readable)
-    s.emit("end")
-}
-
-/* FIXME: This is deprecated. Remove it in 2.0. */
-exports.parse = exports.parseBuffer
